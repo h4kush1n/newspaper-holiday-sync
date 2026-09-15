@@ -7,40 +7,87 @@ from bs4 import BeautifulSoup
 from google.oauth2.service_account import Credentials
 from googleapiclient.discovery import build
 
-def get_holiday_dates():
-    """読売ISの休刊日案内ページから日付を抽出"""
-    url = "https://www.yomiuri-is.co.jp/blog/kyukan/"
-    headers = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
-    }
-    
+HEADERS = {
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+}
+
+def parse_dates_from_text(text, target_years):
+    """テキストから年・月・日のパターンを正規表現で抽出"""
     dates = []
+    for year in target_years:
+        # パターン1: 2026年10月13日 / 2026年 10月 13日
+        pattern1 = rf'{year}\s*年\s*(\d{{1,2}})\s*月\s*(\d{{1,2}})\s*日'
+        matches1 = re.findall(pattern1, text)
+        for m, d in matches1:
+            date_str = f"{year}-{int(m):02d}-{int(d):02d}"
+            if date_str not in dates:
+                dates.append(date_str)
+                
+        # パターン2: 10/13 または 10月13日（年がヘッダー等にある場合）
+        # ※誤検知を防ぐため「月休刊日」などの文脈から抽出
+    return dates
+
+def fetch_from_orikomi_try(target_years):
+    """オリコミトライ (休刊日案内) からの取得"""
+    url = "https://www.orikomi-try.com/kyukan/"
+    dates = []
+    try:
+        res = requests.get(url, headers=HEADERS, timeout=10)
+        res.encoding = res.apparent_encoding
+        soup = BeautifulSoup(res.text, 'html.parser')
+        text = soup.get_text()
+        dates = parse_dates_from_text(text, target_years)
+    except Exception as e:
+        print(f"オリコミトライからの取得失敗: {e}")
+    return dates
+
+def fetch_from_yomiuri_is(target_years):
+    """読売IS からの取得（予備）"""
+    url = "https://www.yomiuri-is.co.jp/blog/kyukan/"
+    dates = []
+    try:
+        res = requests.get(url, headers=HEADERS, timeout=10)
+        res.encoding = 'utf-8'
+        soup = BeautifulSoup(res.text, 'html.parser')
+        text = soup.get_text()
+        dates = parse_dates_from_text(text, target_years)
+    except Exception as e:
+        print(f"読売ISからの取得失敗: {e}")
+    return dates
+
+def fetch_from_sanin_sc(target_years):
+    """山陰中央新報SC からの取得（予備）"""
+    url = "https://www.dailysanin.co.jp/holiday"
+    dates = []
+    try:
+        res = requests.get(url, headers=HEADERS, timeout=10)
+        res.encoding = 'utf-8'
+        soup = BeautifulSoup(res.text, 'html.parser')
+        text = soup.get_text()
+        dates = parse_dates_from_text(text, target_years)
+    except Exception as e:
+        print(f"山陰中央新報SCからの取得失敗: {e}")
+    return dates
+
+def get_holiday_dates():
     current_year = datetime.datetime.now().year
     target_years = [current_year, current_year + 1]
     
-    try:
-        res = requests.get(url, headers=headers, timeout=15)
-        res.encoding = 'utf-8' # 日本語エンコーディングを明示
-        text = res.text
-        
-        # 1. HTMLタグを除去したプレーンテキストを作成
-        soup = BeautifulSoup(text, 'html.parser')
-        plain_text = soup.get_text()
-        
-        # 2. 「2026年10月13日」や「2026年 10月 13日」形式を抽出
-        for year in target_years:
-            # 年・月・日を柔軟に拾うパターン
-            pattern = rf'{year}\s*年\s*(\d{{1,2}})\s*月\s*(\d{{1,2}})\s*日'
-            matches = re.findall(pattern, plain_text)
-            for m, d in matches:
-                date_str = f"{year}-{int(m):02d}-{int(d):02d}"
-                if date_str not in dates:
-                    dates.append(date_str)
-
-    except Exception as e:
-        print(f"Webスクレイピング中にエラーが発生しました: {e}")
-        
-    return sorted(dates)
+    # 複数ソースを順番に試行（最初に成功したものを採用）
+    sources = [
+        ("オリコミトライ", fetch_from_orikomi_try),
+        ("読売IS", fetch_from_yomiuri_is),
+        ("山陰中央新報SC", fetch_from_sanin_sc)
+    ]
+    
+    for name, fetch_func in sources:
+        print(f"ソース [{name}] から休刊日データを試行中...")
+        dates = fetch_func(target_years)
+        if dates:
+            print(f"成功: [{name}] から {len(dates)} 件の日付を取得しました。")
+            return sorted(dates)
+            
+    return []
 
 def main():
     sa_key_json = os.environ.get("GCP_SA_KEY")
@@ -56,10 +103,10 @@ def main():
 
     print("休刊日データを取得中...")
     holiday_dates = get_holiday_dates()
-    print(f"検出された休刊日リスト ({len(holiday_dates)}件): {holiday_dates}")
+    print(f"最終検出リスト ({len(holiday_dates)}件): {holiday_dates}")
 
     if not holiday_dates:
-        print("警告: 休刊日の日付が1件も検出されませんでした。")
+        print("エラー: 全てのソースから休刊日の日付が検出されませんでした。")
         return
 
     for date_str in holiday_dates:
@@ -80,7 +127,7 @@ def main():
                 'summary': '新聞休刊日',
                 'start': {'date': date_str},
                 'end': {'date': date_str},
-                'transparency': 'transparent', # カレンダーの予定あり/なしを「フリー」に設定
+                'transparency': 'transparent',  # カレンダーの予定あり/なしを「フリー」に設定
                 'reminders': {
                     'useDefault': False,
                     'overrides': [
