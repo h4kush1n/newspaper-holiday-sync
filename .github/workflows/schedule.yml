@@ -1,0 +1,29 @@
+name: Sync Newspaper Holidays
+
+on:
+  schedule:
+    # 毎月1日の UTC 0:00（日本時間 9:00）に自動実行
+    - cron: '0 0 1 * *'
+  workflow_dispatch: # 手動実行（Run workflowボタン）を有効化
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+
+      - name: Install dependencies
+        run: |
+          pip install google-api-python-client google-auth beautifulsoup4 requests
+
+      - name: Run sync script
+        env:
+          GCP_SA_KEY: ${{ secrets.GCP_SA_KEY }}
+          CALENDAR_ID: ${{ secrets.CALENDAR_ID }}
+        run: python main.py
