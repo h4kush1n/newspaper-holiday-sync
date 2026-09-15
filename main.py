@@ -12,39 +12,52 @@ HEADERS = {
 }
 
 def parse_dates_from_text(text, year):
+    """テキストから指定年の「M月D日」形式を抽出"""
     dates = []
-    pattern1 = r'(\d{1,2})\s*月\s*(\d{1,2})\s*日'
-    matches = re.findall(pattern1, text)
+    pattern = r'(\d{1,2})\s*月\s*(\d{1,2})\s*日'
+    matches = re.findall(pattern, text)
+    
     for m, d in matches:
         m_int, d_int = int(m), int(d)
         if 1 <= m_int <= 12 and 1 <= d_int <= 31:
             date_str = f"{year}-{m_int:02d}-{d_int:02d}"
             if date_str not in dates:
                 dates.append(date_str)
+                
     return dates
 
-def fetch_from_sanin_sc(year):
-    url = "https://www.dailysanin.co.jp/holiday"
+def fetch_national_holiday_dates(year):
+    """全国統一新聞休刊日（大手ネットワーク）から取得"""
+    url = "https://www.orikomi.tv/price/kyukan.php" # 全国主要紙統一休刊日案内
     dates = []
     try:
         res = requests.get(url, headers=HEADERS, timeout=15)
-        res.encoding = res.apparent_encoding
+        res.encoding = 'utf-8'
         soup = BeautifulSoup(res.text, 'html.parser')
         text = soup.get_text()
+        
         year_str = f"{year}年"
         if year_str in text:
             sub_text = text.split(year_str)[-1]
+            next_year_str = f"{year + 1}年"
+            if next_year_str in sub_text:
+                sub_text = sub_text.split(next_year_str)[0]
+                
             dates = parse_dates_from_text(sub_text, year)
+            print(f"[{year}年 休刊日取得成功]: {dates}")
     except Exception as e:
-        print(f"山陰中央新報SCからの取得失敗: {e}")
+        print(f"{year}年の取得失敗: {e}")
     return dates
 
 def get_holiday_dates():
     current_year = datetime.datetime.now().year
     all_dates = []
+    
+    # 今年と翌年の2年分を取得
     for y in [current_year, current_year + 1]:
-        dates = fetch_from_sanin_sc(y)
+        dates = fetch_national_holiday_dates(y)
         all_dates.extend(dates)
+        
     return sorted(list(set(all_dates)))
 
 def main():
@@ -59,15 +72,16 @@ def main():
     creds = Credentials.from_service_account_info(key_dict, scopes=scopes)
     service = build('calendar', 'v3', credentials=creds)
 
-    print("休刊日データを取得中...")
+    print("全国統一 新聞休刊日データを取得中...")
     holiday_dates = get_holiday_dates()
-    print(f"取得できた休刊日: {holiday_dates}")
+    print(f"\n=== 取得完了リスト ({len(holiday_dates)}件) ===")
+    print(holiday_dates)
 
     if not holiday_dates:
-        print("休刊日データがありません。")
+        print("エラー: 休刊日データがありません。")
         return
 
-    # カレンダー内の既存予定をすべて取得
+    # カレンダー内の既存予定を取得して重複チェック
     existing_events = service.events().list(calendarId=calendar_id).execute().get('items', [])
     existing_dates = {}
     
@@ -76,12 +90,10 @@ def main():
         if start_date:
             existing_dates[start_date] = ev['id']
 
-    # 取得した日付ごとに処理
     for date_str in holiday_dates:
         if date_str in existing_dates:
-            print(f"【スキップ】すでに登録されています: {date_str}")
+            print(f"【スキップ】登録済み: {date_str}")
         else:
-            # 新規登録（通知はカレンダー側のデフォルト通知を使用）
             event = {
                 'summary': '新聞休刊日',
                 'start': {'date': date_str},
