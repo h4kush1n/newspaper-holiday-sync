@@ -11,27 +11,32 @@ HEADERS = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
 }
 
-def parse_dates_from_elements(soup, year):
-    """HTML要素から注記テキスト（※始まり）を除外して日付を正確に抽出"""
+def parse_dates_from_tables(soup, year):
+    """HTMLの <table> 要素内（セル）のみから休刊日の日付を抽出（テーブル外の注記を完全排除）"""
     dates = []
-    elements = soup.find_all(['td', 'th', 'li', 'p', 'dt', 'dd'])
     pattern = r'(\d{1,2})\s*月\s*(\d{1,2})\s*日'
     
-    for elem in elements:
-        text = elem.get_text().strip()
-        
-        # 「※」から始まる注記行のみをスキップ（テーブル内の他要素を巻き込まない）
-        if text.startswith("※"):
-            continue
+    # ページ内のすべてのテーブルを取得
+    tables = soup.find_all('table')
+    
+    for table in tables:
+        # テーブル内の各セル（td, th）からテキストを取得
+        cells = table.find_all(['td', 'th'])
+        for cell in cells:
+            text = cell.get_text().strip()
             
-        matches = re.findall(pattern, text)
-        for m, d in matches:
-            m_int, d_int = int(m), int(d)
-            if 1 <= m_int <= 12 and 1 <= d_int <= 31:
-                date_str = f"{year}-{m_int:02d}-{d_int:02d}"
-                if date_str not in dates:
-                    dates.append(date_str)
-                    
+            # 注記などの記号が含まれるセルは除外
+            if "※" in text or "注" in text or "変更" in text or "選挙" in text:
+                continue
+                
+            matches = re.findall(pattern, text)
+            for m, d in matches:
+                m_int, d_int = int(m), int(d)
+                if 1 <= m_int <= 12 and 1 <= d_int <= 31:
+                    date_str = f"{year}-{m_int:02d}-{d_int:02d}"
+                    if date_str not in dates:
+                        dates.append(date_str)
+                        
     return dates
 
 def fetch_from_evolia(year):
@@ -46,7 +51,7 @@ def fetch_from_evolia(year):
         year_str = f"{year}年"
         
         if year_str in page_text:
-            dates = parse_dates_from_elements(soup, year)
+            dates = parse_dates_from_tables(soup, year)
             print(f"[evolia] {year}年の抽出結果: {dates}")
             return dates
     except Exception as e:
