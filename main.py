@@ -26,10 +26,9 @@ def parse_dates_from_text(text, year):
                 
     return dates
 
-def fetch_national_holiday_dates(year):
-    """全国統一新聞休刊日（大手ネットワーク）から取得"""
-    url = "https://www.orikomi.tv/price/kyukan.php" # 全国主要紙統一休刊日案内
-    dates = []
+def fetch_from_evolia(year):
+    """evolia（エヴォリア）公式の新聞休刊日固定ページから取得"""
+    url = "https://www.evolia.co.jp/promotion/orikomi/newspaper-holiday/"
     try:
         res = requests.get(url, headers=HEADERS, timeout=15)
         res.encoding = 'utf-8'
@@ -44,20 +43,24 @@ def fetch_national_holiday_dates(year):
                 sub_text = sub_text.split(next_year_str)[0]
                 
             dates = parse_dates_from_text(sub_text, year)
-            print(f"[{year}年 休刊日取得成功]: {dates}")
+            print(f"[evolia] {year}年の抽出結果: {dates}")
+            return dates
     except Exception as e:
-        print(f"{year}年の取得失敗: {e}")
-    return dates
+        print(f"evoliaからの取得失敗: {e}")
+    return []
 
 def get_holiday_dates():
     current_year = datetime.datetime.now().year
+    target_years = [current_year, current_year + 1]
     all_dates = []
-    
-    # 今年と翌年の2年分を取得
-    for y in [current_year, current_year + 1]:
-        dates = fetch_national_holiday_dates(y)
-        all_dates.extend(dates)
-        
+
+    for y in target_years:
+        dates = fetch_from_evolia(y)
+        if dates:
+            all_dates.extend(dates)
+        else:
+            print(f"[{y}年の休刊日データは未掲載または未検出です]")
+
     return sorted(list(set(all_dates)))
 
 def main():
@@ -65,30 +68,25 @@ def main():
     calendar_id = os.environ.get("CALENDAR_ID")
 
     if not sa_key_json or not calendar_id:
-        raise ValueError("環境変数が設定されていません。")
+        raise ValueError("環境変数 GCP_SA_KEY または CALENDAR_ID が設定されていません。")
 
     key_dict = json.loads(sa_key_json)
     scopes = ['https://www.googleapis.com/auth/calendar']
     creds = Credentials.from_service_account_info(key_dict, scopes=scopes)
     service = build('calendar', 'v3', credentials=creds)
 
-    print("全国統一 新聞休刊日データを取得中...")
+    print("evolia から新聞休刊日データを取得中...")
     holiday_dates = get_holiday_dates()
-    print(f"\n=== 取得完了リスト ({len(holiday_dates)}件) ===")
+    print(f"\n=== 最終取得リスト ({len(holiday_dates)}件) ===")
     print(holiday_dates)
 
     if not holiday_dates:
-        print("エラー: 休刊日データがありません。")
+        print("エラー: 休刊日データが取得できませんでした。")
         return
 
     # カレンダー内の既存予定を取得して重複チェック
     existing_events = service.events().list(calendarId=calendar_id).execute().get('items', [])
-    existing_dates = {}
-    
-    for ev in existing_events:
-        start_date = ev.get('start', {}).get('date')
-        if start_date:
-            existing_dates[start_date] = ev['id']
+    existing_dates = {ev.get('start', {}).get('date'): ev['id'] for ev in existing_events if ev.get('start', {}).get('date')}
 
     for date_str in holiday_dates:
         if date_str in existing_dates:
