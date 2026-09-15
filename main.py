@@ -71,19 +71,11 @@ def main():
         print("エラー: 休刊日の日付が検出されませんでした。")
         return
 
-    # 終日イベントに対する「当日 6:40」の通知設定
-    # 終日イベントの基準時刻（0:00）から 6時間40分（400分）後を指定
-    reminder_settings = {
-        'useDefault': False,
-        'overrides': [
-            {'method': 'popup', 'minutes': 400}
-        ]
-    }
-
     for date_str in holiday_dates:
         start_time = f"{date_str}T00:00:00Z"
         end_time = f"{date_str}T23:59:59Z"
         
+        # 同一日の既存予定を取得
         events_result = service.events().list(
             calendarId=calendar_id,
             timeMin=start_time,
@@ -93,28 +85,23 @@ def main():
         
         events = events_result.get('items', [])
         
-        if not events:
-            # 新規追加
-            event = {
-                'summary': '新聞休刊日',
-                'start': {'date': date_str},
-                'end': {'date': date_str},
-                'transparency': 'transparent',
-                'reminders': reminder_settings
+        # 既存の古い予定を一旦削除（クリーンアップ）
+        for event in events:
+            service.events().delete(calendarId=calendar_id, eventId=event['id']).execute()
+            print(f"【旧予定削除】 {date_str}")
+
+        # カレンダー本体のデフォルト通知（当日6:40）を適用して新規作成
+        event = {
+            'summary': '新聞休刊日',
+            'start': {'date': date_str},
+            'end': {'date': date_str},
+            'transparency': 'transparent',
+            'reminders': {
+                'useDefault': True  # カレンダー側のデフォルト通知設定に従う
             }
-            created_event = service.events().insert(calendarId=calendar_id, body=event).execute()
-            print(f"【新規登録】 {date_str} (通知: 当日 6:40)")
-        else:
-            # すでに存在する予定の通知設定を更新
-            for event in events:
-                event['reminders'] = reminder_settings
-                event['transparency'] = 'transparent'
-                service.events().update(
-                    calendarId=calendar_id,
-                    eventId=event['id'],
-                    body=event
-                ).execute()
-                print(f"【通知更新】 {date_str} (通知: 当日 6:40)")
+        }
+        created_event = service.events().insert(calendarId=calendar_id, body=event).execute()
+        print(f"【新規再作成】 {date_str} (デフォルト通知適用)")
 
 if __name__ == "__main__":
     main()
