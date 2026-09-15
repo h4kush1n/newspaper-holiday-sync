@@ -11,38 +11,41 @@ HEADERS = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
 }
 
-def parse_dates_from_text(text, year):
-    """テキストから指定年の「M月D日」形式を抽出"""
+def parse_dates_from_elements(soup, year):
+    """HTML要素から注意書き（※等）を除外して休刊日の日付のみを厳密抽出"""
     dates = []
+    elements = soup.find_all(['td', 'th', 'li', 'p', 'dt', 'dd'])
     pattern = r'(\d{1,2})\s*月\s*(\d{1,2})\s*日'
-    matches = re.findall(pattern, text)
     
-    for m, d in matches:
-        m_int, d_int = int(m), int(d)
-        if 1 <= m_int <= 12 and 1 <= d_int <= 31:
-            date_str = f"{year}-{m_int:02d}-{d_int:02d}"
-            if date_str not in dates:
-                dates.append(date_str)
-                
+    for elem in elements:
+        text = elem.get_text().strip()
+        # 注意書きや説明文（※、注、変更、選挙などを含むテキスト）は抽出対象から外す
+        if any(keyword in text for keyword in ["※", "注", "変更", "選挙"]):
+            continue
+            
+        matches = re.findall(pattern, text)
+        for m, d in matches:
+            m_int, d_int = int(m), int(d)
+            if 1 <= m_int <= 12 and 1 <= d_int <= 31:
+                date_str = f"{year}-{m_int:02d}-{d_int:02d}"
+                if date_str not in dates:
+                    dates.append(date_str)
+                    
     return dates
 
 def fetch_from_evolia(year):
-    """evolia（エヴォリア）公式の新聞休刊日固定ページから取得"""
+    """evolia公式の新聞休刊日固定ページから取得"""
     url = "https://www.evolia.co.jp/promotion/orikomi/newspaper-holiday/"
     try:
         res = requests.get(url, headers=HEADERS, timeout=15)
         res.encoding = 'utf-8'
         soup = BeautifulSoup(res.text, 'html.parser')
-        text = soup.get_text()
         
+        page_text = soup.get_text()
         year_str = f"{year}年"
-        if year_str in text:
-            sub_text = text.split(year_str)[-1]
-            next_year_str = f"{year + 1}年"
-            if next_year_str in sub_text:
-                sub_text = sub_text.split(next_year_str)[0]
-                
-            dates = parse_dates_from_text(sub_text, year)
+        
+        if year_str in page_text:
+            dates = parse_dates_from_elements(soup, year)
             print(f"[evolia] {year}年の抽出結果: {dates}")
             return dates
     except Exception as e:
@@ -59,7 +62,7 @@ def get_holiday_dates():
         if dates:
             all_dates.extend(dates)
         else:
-            print(f"[{y}年の休刊日データは未掲載または未検出です]")
+            print(f"[{y}年の休刊日データは未掲載または未検出]")
 
     return sorted(list(set(all_dates)))
 
@@ -68,7 +71,7 @@ def main():
     calendar_id = os.environ.get("CALENDAR_ID")
 
     if not sa_key_json or not calendar_id:
-        raise ValueError("環境変数 GCP_SA_KEY または CALENDAR_ID が設定されていません。")
+        raise ValueError("環境変数が設定されていません。")
 
     key_dict = json.loads(sa_key_json)
     scopes = ['https://www.googleapis.com/auth/calendar']
