@@ -15,14 +15,12 @@ def parse_dates_from_text(text, year):
     dates = []
     pattern1 = r'(\d{1,2})\s*月\s*(\d{1,2})\s*日'
     matches = re.findall(pattern1, text)
-    
     for m, d in matches:
         m_int, d_int = int(m), int(d)
         if 1 <= m_int <= 12 and 1 <= d_int <= 31:
             date_str = f"{year}-{m_int:02d}-{d_int:02d}"
             if date_str not in dates:
                 dates.append(date_str)
-                
     return dates
 
 def fetch_from_sanin_sc(year):
@@ -33,7 +31,6 @@ def fetch_from_sanin_sc(year):
         res.encoding = res.apparent_encoding
         soup = BeautifulSoup(res.text, 'html.parser')
         text = soup.get_text()
-        
         year_str = f"{year}年"
         if year_str in text:
             sub_text = text.split(year_str)[-1]
@@ -48,7 +45,6 @@ def get_holiday_dates():
     for y in [current_year, current_year + 1]:
         dates = fetch_from_sanin_sc(y)
         all_dates.extend(dates)
-        
     return sorted(list(set(all_dates)))
 
 def main():
@@ -56,7 +52,7 @@ def main():
     calendar_id = os.environ.get("CALENDAR_ID")
 
     if not sa_key_json or not calendar_id:
-        raise ValueError("環境変数 GCP_SA_KEY または CALENDAR_ID が設定されていません。")
+        raise ValueError("環境変数が設定されていません。")
 
     key_dict = json.loads(sa_key_json)
     scopes = ['https://www.googleapis.com/auth/calendar']
@@ -65,43 +61,38 @@ def main():
 
     print("休刊日データを取得中...")
     holiday_dates = get_holiday_dates()
-    print(f"最終検出リスト ({len(holiday_dates)}件): {holiday_dates}")
+    print(f"取得できた休刊日: {holiday_dates}")
 
     if not holiday_dates:
-        print("エラー: 休刊日の日付が検出されませんでした。")
+        print("休刊日データがありません。")
         return
 
-    for date_str in holiday_dates:
-        start_time = f"{date_str}T00:00:00Z"
-        end_time = f"{date_str}T23:59:59Z"
-        
-        # 同一日の既存予定を取得
-        events_result = service.events().list(
-            calendarId=calendar_id,
-            timeMin=start_time,
-            timeMax=end_time,
-            singleEvents=True
-        ).execute()
-        
-        events = events_result.get('items', [])
-        
-        # 既存の古い予定を一旦削除（クリーンアップ）
-        for event in events:
-            service.events().delete(calendarId=calendar_id, eventId=event['id']).execute()
-            print(f"【旧予定削除】 {date_str}")
+    # カレンダー内の既存予定をすべて取得
+    existing_events = service.events().list(calendarId=calendar_id).execute().get('items', [])
+    existing_dates = {}
+    
+    for ev in existing_events:
+        start_date = ev.get('start', {}).get('date')
+        if start_date:
+            existing_dates[start_date] = ev['id']
 
-        # カレンダー本体のデフォルト通知（当日6:40）を適用して新規作成
-        event = {
-            'summary': '新聞休刊日',
-            'start': {'date': date_str},
-            'end': {'date': date_str},
-            'transparency': 'transparent',
-            'reminders': {
-                'useDefault': True  # カレンダー側のデフォルト通知設定に従う
+    # 取得した日付ごとに処理
+    for date_str in holiday_dates:
+        if date_str in existing_dates:
+            print(f"【スキップ】すでに登録されています: {date_str}")
+        else:
+            # 新規登録（通知はカレンダー側のデフォルト通知を使用）
+            event = {
+                'summary': '新聞休刊日',
+                'start': {'date': date_str},
+                'end': {'date': date_str},
+                'transparency': 'transparent',
+                'reminders': {
+                    'useDefault': True
+                }
             }
-        }
-        created_event = service.events().insert(calendarId=calendar_id, body=event).execute()
-        print(f"【新規再作成】 {date_str} (デフォルト通知適用)")
+            service.events().insert(calendarId=calendar_id, body=event).execute()
+            print(f"【新規登録】 {date_str}")
 
 if __name__ == "__main__":
     main()
