@@ -12,15 +12,16 @@ HEADERS = {
 }
 
 def parse_dates_from_elements(soup, year):
-    """HTML要素から注意書き（※等）を除外して休刊日の日付のみを厳密抽出"""
+    """HTML要素から注記テキスト（※始まり）を除外して日付を正確に抽出"""
     dates = []
     elements = soup.find_all(['td', 'th', 'li', 'p', 'dt', 'dd'])
     pattern = r'(\d{1,2})\s*月\s*(\d{1,2})\s*日'
     
     for elem in elements:
         text = elem.get_text().strip()
-        # 注意書きや説明文（※、注、変更、選挙などを含むテキスト）は抽出対象から外す
-        if any(keyword in text for keyword in ["※", "注", "変更", "選挙"]):
+        
+        # 「※」から始まる注記行のみをスキップ（テーブル内の他要素を巻き込まない）
+        if text.startswith("※"):
             continue
             
         matches = re.findall(pattern, text)
