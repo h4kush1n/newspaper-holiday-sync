@@ -11,36 +11,57 @@ HEADERS = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
 }
 
-def parse_dates_from_tables(soup, year):
-    """HTMLの <table> 要素内（セル）のみから休刊日の日付を抽出（テーブル外の注記を完全排除）"""
+def parse_evolia_html(soup, year):
+    """evoliaのテーブル構造 (tr > th:月, td:日) から日付を正確にパース"""
     dates = []
-    pattern = r'(\d{1,2})\s*月\s*(\d{1,2})\s*日'
     
-    # ページ内のすべてのテーブルを取得
-    tables = soup.find_all('table')
+    # list-table 内の table 行を走査
+    list_table = soup.find('div', class_='list-table')
+    if not list_table:
+        list_table = soup
+        
+    rows = list_table.find_all('tr')
     
-    for table in tables:
-        # テーブル内の各セル（td, th）からテキストを取得
-        cells = table.find_all(['td', 'th'])
-        for cell in cells:
-            text = cell.get_text().strip()
+    for row in rows:
+        th = row.find('th')
+        td = row.find('td')
+        
+        if not th or not td:
+            continue
             
-            # 注記などの記号が含まれるセルは除外
-            if "※" in text or "注" in text or "変更" in text or "選挙" in text:
+        th_text = th.get_text().strip()  # 例: "2月" や "2026年"
+        
+        # 「1月」「2月」などの月情報を抽出
+        month_match = re.search(r'(\d{1,2})\s*月', th_text)
+        if not month_match:
+            continue
+        month = int(month_match.group(1))
+        
+        # td内のテキストを取得（注記の※以降や<br>以降を除外するため、最初の要素/行を取得）
+        # brタグで分割して最初の行だけを見る
+        for br in td.find_all('br'):
+            br.replace_with('\n')
+        
+        td_lines = td.get_text().split('\n')
+        
+        for line in td_lines:
+            line = line.strip()
+            # 注記行はスキップ
+            if line.startswith('※') or '選挙' in line or '変更' in line:
                 continue
                 
-            matches = re.findall(pattern, text)
-            for m, d in matches:
-                m_int, d_int = int(m), int(d)
-                if 1 <= m_int <= 12 and 1 <= d_int <= 31:
-                    date_str = f"{year}-{m_int:02d}-{d_int:02d}"
-                    if date_str not in dates:
-                        dates.append(date_str)
-                        
+            # 「24日（火）」や「2日（金）」から日を抽出
+            day_match = re.search(r'(\d{1,2})\s*日', line)
+            if day_match:
+                day = int(day_match.group(1))
+                date_str = f"{year}-{month:02d}-{day:02d}"
+                if date_str not in dates:
+                    dates.append(date_str)
+                break  # 最初に見つかった日（休刊日本体）を採用
+                
     return dates
 
 def fetch_from_evolia(year):
-    """evolia公式の新聞休刊日固定ページから取得"""
     url = "https://www.evolia.co.jp/promotion/orikomi/newspaper-holiday/"
     try:
         res = requests.get(url, headers=HEADERS, timeout=15)
@@ -51,7 +72,7 @@ def fetch_from_evolia(year):
         year_str = f"{year}年"
         
         if year_str in page_text:
-            dates = parse_dates_from_tables(soup, year)
+            dates = parse_evolia_html(soup, year)
             print(f"[evolia] {year}年の抽出結果: {dates}")
             return dates
     except Exception as e:
