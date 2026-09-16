@@ -2,8 +2,10 @@ name: Sync Newspaper Holidays
 
 on:
   schedule:
-    # 毎月1日の UTC 0:00（日本時間 9:00）に自動実行
+    # 1. 通常期間: 毎月1日の UTC 0:00（日本時間 9:00）に自動実行
     - cron: '0 0 1 * *'
+    # 2. 翌年データ更新警戒期間: 10月15日〜31日の毎日 UTC 0:00（日本時間 9:00）に自動実行
+    - cron: '0 0 15-31 10 *'
   workflow_dispatch: # 手動実行（Run workflowボタン）を有効化
 
 jobs:
