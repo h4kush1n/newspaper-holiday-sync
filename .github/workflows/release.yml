@@ -1,0 +1,30 @@
+name: Auto Release
+
+on:
+  push:
+    branches:
+      - main
+    paths-ignore:
+      - 'README.md'
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write  # リリース作成とタグ打ちに必要な権限
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Create Bump Release
+        uses: ncipollo/release-action@v1
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          tag: "v1.0.${{ github.run_number }}"
+          name: "Release v1.0.${{ github.run_number }}"
+          body: |
+            ## Automated Release
+            * Commit: ${{ github.sha }}
+            * Triggered by: ${{ github.actor }}
+          draft: false
+          prerelease: false
