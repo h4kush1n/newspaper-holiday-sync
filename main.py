@@ -126,8 +126,9 @@ def compute_sync_plan(by_year, target_years, existing_events):
     安全性の要点（フェイルセーフ）:
       - 削除対象はタイトルが「新聞休刊日」の終日イベントだけに限定する。
       - 対象年（今年・来年）のイベントだけを扱い、過去年などの履歴には触れない。
-      - その年の取得が成功（1件以上）した年だけ削除を許可する。取得失敗・未掲載の年に
-        ついては削除を一切行わない（取得側の一時的な不調で既存登録を消さないため）。
+      - その年の取得が十分（10件以上）な年だけ削除を許可する。取得失敗・未掲載・
+        一部だけしか取れなかった年については削除を一切行わない（取得側の不調や
+        ページ構造の変更で、既存登録を誤って消さないため）。
       - 同一日付に複数イベントがある場合は1件だけ残し、残りを重複として削除する。
     巻き戻し方法: main() で to_delete を適用しないよう戻すか、
     main.py.v1_urlfix.bak_20261109 にファイルごと戻す。
@@ -138,7 +139,13 @@ def compute_sync_plan(by_year, target_years, existing_events):
     fetched_all = set()
     for dates in by_year.values():
         fetched_all.update(dates)
-    verified_years = {y for y, dates in by_year.items() if dates}
+    # 【変更 2026-11-09 v3】削除を許可する年は「取得が10件以上」の年に限る。
+    # ページ構造の変更などで一部だけ取れた年を「取得成功」と誤認すると、取りこぼした
+    # 日付が「存在しない」と判断され、カレンダーから消えてしまうため。
+    # 休刊日は年12回が前提なので、10件未満の取得は異常とみなし、その年は追加のみに倒す。
+    # 巻き戻し方法: 条件を「1件以上」に戻すか、main.py.v2_sync.bak_20261109 に戻す。
+    MIN_DATES_FOR_DELETE = 10
+    verified_years = {y for y, dates in by_year.items() if len(dates) >= MIN_DATES_FOR_DELETE}
 
     # 自分が登録したイベント（タイトル「新聞休刊日」の終日イベント）だけを日付→ID群に整理
     existing_map = {}
@@ -187,8 +194,11 @@ def main():
     print(holiday_dates)
 
     if not holiday_dates:
-        print("エラー: 休刊日データが取得できませんでした。")
-        return
+        # 【変更 2026-11-09 v3】全年で取得0件の場合は、正常終了せず例外で落とす。
+        # 従来は return で静かに終わり GitHub Actions 上も「成功」扱いになるため、
+        # サイト消滅・全面404などに誰も気づけない状態だった。失敗として記録に残す。
+        # 巻き戻し方法: raise を print + return に戻す。
+        raise RuntimeError("エラー: 休刊日データが取得できませんでした（全年0件）。カレンダーは変更していません。")
 
     # 【変更 2026-11-09】既存予定を全ページ取得し、compute_sync_plan の突き合わせで
     # 追加・削除を決める。従来は先頭ページのみの取得＋追加のみで、日付変更が反映されなかった。
