@@ -62,21 +62,33 @@ def parse_evolia_html(soup, year):
     return dates
 
 def fetch_from_evolia(year):
-    url = "https://www.evolia.co.jp/promotion/orikomi/newspaper-holiday/"
-    try:
-        res = requests.get(url, headers=HEADERS, timeout=15)
-        res.encoding = 'utf-8'
-        soup = BeautifulSoup(res.text, 'html.parser')
-        
-        page_text = soup.get_text()
-        year_str = f"{year}年"
-        
-        if year_str in page_text:
-            dates = parse_evolia_html(soup, year)
-            print(f"[evolia] {year}年の抽出結果: {dates}")
-            return dates
-    except Exception as e:
-        print(f"evoliaからの取得失敗: {e}")
+    # 【変更 2026-11-09】evoliaは翌年分を年付きURL（.../newspaper-holiday{year}/）に
+    # 「速報」として先行掲載し、固定URLの翌年への切り替えが遅れる（2026-11-09時点で
+    # 固定URLは2026年のまま、2027年分は年付きURLにのみ掲載されていた）。
+    # そのため年付きURLを優先し、固定URLを予備として併用する。
+    # 巻き戻し方法: urls を固定URLのみのリストに戻す。
+    urls = [
+        f"https://www.evolia.co.jp/promotion/orikomi/newspaper-holiday{year}/",
+        "https://www.evolia.co.jp/promotion/orikomi/newspaper-holiday/",
+    ]
+    for url in urls:
+        try:
+            res = requests.get(url, headers=HEADERS, timeout=15)
+            if res.status_code != 200:
+                continue  # 年付きURLがまだ無い年などは次の候補へ
+            res.encoding = 'utf-8'
+            soup = BeautifulSoup(res.text, 'html.parser')
+
+            page_text = soup.get_text()
+            year_str = f"{year}年"
+
+            if year_str in page_text:
+                dates = parse_evolia_html(soup, year)
+                print(f"[evolia] {year}年の抽出結果: {dates}")
+                if dates:
+                    return dates
+        except Exception as e:
+            print(f"evoliaからの取得失敗 ({url}): {e}")
     return []
 
 def get_holiday_dates():
