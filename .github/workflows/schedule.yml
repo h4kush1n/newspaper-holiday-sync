@@ -1,53 +1,53 @@
 name: Sync Newspaper Holidays
 
 on:
-schedule:
-# 1. 通常期間: 毎月1日の UTC 0:00（日本時間 9:00）に自動実行
-- cron: '0 0 1 * *'
-# 2. 翌年データ更新警戒期間: 10月15日〜31日の毎日 UTC 0:00（日本時間 9:00）に自動実行
-- cron: '0 0 15-31 10 *'
-workflow_dispatch: # 手動実行（Run workflowボタン）を有効化
+  schedule:
+    # 1. 通常期間: 毎月1日の UTC 0:00（日本時間 9:00）に自動実行
+    - cron: '0 0 1 * *'
+    # 2. 翌年データ更新警戒期間: 10月15日〜31日の毎日 UTC 0:00（日本時間 9:00）に自動実行
+    - cron: '0 0 15-31 10 *'
+  workflow_dispatch: # 手動実行（Run workflowボタン）を有効化
 
 jobs:
-sync:
-runs-on: ubuntu-latest
-# 末尾の keep-alive コミットを push するために必要
-permissions:
-contents: write
-steps:
-- name: Checkout code
-uses: actions/checkout@v4
+  sync:
+    runs-on: ubuntu-latest
+    # 【追加 2026-11-09】末尾の keep-alive コミットを push するために必要
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
 
-- name: Set up Python
-uses: actions/setup-python@v5
-with:
-python-version: '3.12'
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
 
-- name: Install dependencies
-run: |
-pip install google-api-python-client google-auth beautifulsoup4 requests
+      - name: Install dependencies
+        run: |
+          pip install google-api-python-client google-auth beautifulsoup4 requests
 
-- name: Run sync script
-env:
-GCP_SA_KEY: ${{ secrets.GCP_SA_KEY}}
-CALENDAR_ID: ${{ secrets.CALENDAR_ID}}
-run: python main.py
+      - name: Run sync script
+        env:
+          GCP_SA_KEY: ${{ secrets.GCP_SA_KEY }}
+          CALENDAR_ID: ${{ secrets.CALENDAR_ID }}
+        run: python main.py
 
-# keep-alive:
-# 公開リポジトリでは、60日間リポジトリ活動（コミット等）が無いとスケジュール
-# 実行が自動で無効化される（GitHubの仕様）。この sync はコミットを生まないため、
-# 実行のたびに最終実行日時を keepalive.txt に記録してコミットし、無効化を防ぐ。
-# 実行間隔は最大でも約1か月なので、60日の期限には常に余裕を持って間に合う。
-# 同期が失敗した実行では記録しない（失敗を活動実績で覆い隠さないため）。
-# この push は GITHUB_TOKEN によるもので、他のワークフローは起動しない。
-# 加えて release.yml の paths-ignore にも keepalive.txt を入れて二重に防いでいる。
-# 巻き戻し方法: このステップと permissions を削除し、schedule.yml.bak_20261109 に戻す。
-- name: Keep-alive commit
-if: success()
-run: |
-TZ=Asia/Tokyo date '+最終実行: %Y-%m-%d %H:%M JST' > keepalive.txt
-git config user.name "github-actions[bot]"
-git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-git add keepalive.txt
-git commit -m "keep-alive: $(TZ=Asia/Tokyo date '+%Y-%m-%d')"
-git push
+      # 【追加 2026-11-09】keep-alive:
+      # 公開リポジトリでは、60日間リポジトリ活動（コミット等）が無いとスケジュール
+      # 実行が自動で無効化される（GitHubの仕様）。この sync はコミットを生まないため、
+      # 実行のたびに最終実行日時を keepalive.txt に記録してコミットし、無効化を防ぐ。
+      # 実行間隔は最大でも約1か月なので、60日の期限には常に余裕を持って間に合う。
+      # 同期が失敗した実行では記録しない（失敗を活動実績で覆い隠さないため）。
+      # この push は GITHUB_TOKEN によるもので、他のワークフローは起動しない。
+      # 加えて release.yml の paths-ignore にも keepalive.txt を入れて二重に防いでいる。
+      # 巻き戻し方法: このステップと permissions を削除し、schedule.yml.bak_20261109 に戻す。
+      - name: Keep-alive commit
+        if: success()
+        run: |
+          TZ=Asia/Tokyo date '+最終実行: %Y-%m-%d %H:%M JST' > keepalive.txt
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add keepalive.txt
+          git commit -m "keep-alive: $(TZ=Asia/Tokyo date '+%Y-%m-%d')"
+          git push
