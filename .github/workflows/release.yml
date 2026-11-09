@@ -6,6 +6,8 @@ on:
       - main
     paths-ignore:
       - 'README.md'
+      # 【追加 2026-11-09】schedule.yml の keep-alive 自動コミットではリリースを作らない
+      - 'keepalive.txt'
 
 jobs:
   release:
